@@ -6,11 +6,19 @@ import java.util.Queue;
 public class GerenteProcessos {
 
     public static class PCB {
+
+        public enum EstadoProcesso {
+            PRONTO,
+            EXECUTANDO,
+            BLOQUEADO,
+            FINALIZADO
+        }
+
         public final int id;
         public final int[] registradores;
         public final int[] tabelaPaginas;
         public final String nomePrograma;
-        public String estado;
+        public EstadoProcesso estado;
         public int pc;
 
         public PCB(int id, String nomePrograma, int[] tabelaPaginas) {
@@ -19,8 +27,9 @@ public class GerenteProcessos {
             this.tabelaPaginas = tabelaPaginas;
             this.pc = 0;
             this.registradores = new int[10];
-            this.estado = "Pronto";
+            this.estado = EstadoProcesso.PRONTO;
         }
+
     }
 
     private int proximoId = 1;
@@ -32,13 +41,13 @@ public class GerenteProcessos {
     private final HW hw;
     private final Programs progs;
 
-    public GerenteProcessos(GerenteMemoria gm, HW hw, Programs progs) {
+    public GerenteProcessos(HW hw) {
         this.gm = gm;
         this.hw = hw;
         this.progs = progs;
     }
 
-    public boolean criaProcesso(String nomePrograma) {
+    public synchronized boolean criaProcesso(String nomePrograma) {
         Word[] programa = progs.retrieveProgram(nomePrograma);
         if (programa == null) {
             System.out.println("Programa não encontrado: " + nomePrograma);
@@ -78,11 +87,12 @@ public class GerenteProcessos {
         }
     }
 
-    public void desalocaProcesso(int id) {
+    public synchronized void desalocaProcesso(int id) {
         PCB alvo = null;
         for (PCB p : todos) {
             if (p.id == id) {
                 alvo = p;
+                break;
             }
         }
 
@@ -101,22 +111,22 @@ public class GerenteProcessos {
         System.out.println("Processo " + id + " desalocado.");
     }
 
-    public void listaProcessos() {
+    public synchronized void listaProcessos() {
         System.out.println("----- Lista de Processos -----");
         for (PCB p : todos) {
             System.out.println("ID: " + p.id + " | Nome: " + p.nomePrograma + " | Estado: " + p.estado);
         }
     }
 
-    public void executaProcesso(int id) {
+    public synchronized void executaProcesso(int id) {
         for (PCB p : todos) {
             if (p.id == id) {
                 rodando = p;
-                p.estado = "Executando";
+                p.estado = PCB.EstadoProcesso.EXECUTANDO;
                 System.out.println("Executando processo " + p.id + " (" + p.nomePrograma + ")");
                 hw.cpu.setContext(0);
                 hw.cpu.run();
-                p.estado = "Finalizado";
+                p.estado = PCB.EstadoProcesso.FINALIZADO;
                 rodando = null;
                 return;
             }
@@ -124,37 +134,76 @@ public class GerenteProcessos {
         System.out.println("Processo com id " + id + " não encontrado.");
     }
 
-    public boolean haProcessosProntos() {
+    public synchronized boolean haProcessosProntos() {
         return !filaProntos.isEmpty();
     }
 
-    public PCB proximoProcesso() {
+    public synchronized PCB proximoProcesso() {
         return filaProntos.poll();
     }
 
-    public void refileiraProcesso(PCB pcb) {
-        filaProntos.add(pcb);
+    public synchronized void refileiraProcesso(PCB pcb) {
+        if (pcb != null) {
+            filaProntos.add(pcb);
+        }
     }
 
-    public void setRodando(PCB pcb) {
+    public synchronized void setRodando(PCB pcb) {
         rodando = pcb;
     }
 
-    public void limparRodando() {
+    public synchronized void limparRodando() {
         rodando = null;
     }
 
-    public void salvarContexto(PCB pcb) {
+    public synchronized void salvarContexto(PCB pcb) {
         pcb.pc = hw.cpu.getPc();
         hw.cpu.copyRegistersTo(pcb.registradores);
         System.out.println("[Contexto salvo] Processo " + pcb.id + " (pc=" + pcb.pc + ")");
     }
 
-    public void restaurarContexto(PCB pcb) {
+    public synchronized void restaurarContexto(PCB pcb) {
         hw.cpu.setContext(pcb.pc);
         hw.cpu.restoreRegisters(pcb.registradores);
         hw.cpu.setStopped(false);
         System.out.println("[Contexto restaurado] Processo " + pcb.id + " (pc=" + pcb.pc + ")");
     }
-}
 
+    // permite que outros componentes saibam qual PCB está rodando
+    public synchronized PCB getRodando() {
+        return rodando;
+    }
+
+    // bloqueia o processo (rodando); espera que o contexto já tenha sido salvo
+    public synchronized void bloquearProcesso(PCB pcb) {
+        if (pcb == null)
+            return;
+        pcb.estado = PCB.EstadoProcesso.BLOQUEADO;
+        // se por acaso estiver na fila de prontos, removemos
+        filaProntos.remove(pcb);
+        System.out.println("[GerenteProcessos] Processo " + pcb.id + " bloqueado.");
+    }
+
+    // desbloqueia por id (chamado pelo dispositivo ao terminar)
+    public synchronized void desbloquearProcessoById(int id) {
+        PCB alvo = null;
+        for (PCB p : todos) {
+            if (p.id == id) {
+                alvo = p;
+                break;
+            }
+        }
+        if (alvo == null) {
+            System.out.println("[GerenteProcessos] desbloquear: processo " + id + " não encontrado.");
+            return;
+        }
+        if (alvo.estado == PCB.EstadoProcesso.BLOQUEADO) {
+            alvo.estado = PCB.EstadoProcesso.PRONTO;
+            filaProntos.add(alvo);
+            System.out.println("[GerenteProcessos] Processo " + id + " desbloqueado e colocado na fila de prontos.");
+        } else {
+            System.out.println(
+                    "[GerenteProcessos] Processo " + id + " não estava bloqueado (estado=" + alvo.estado + ").");
+        }
+    }
+}

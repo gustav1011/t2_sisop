@@ -5,9 +5,8 @@ public class SO {
 
     public SO(HW hw) {
         ih = new InterruptHandling(hw);
-        sc = new SysCallHandling(hw);
+        syscall = new SysCallHandling(hw, esc, gp, dispositivo);
         hw.cpu.setAddressOfHandlers(ih, sc);
         utils = new Utilities(hw);
     }
 }
-

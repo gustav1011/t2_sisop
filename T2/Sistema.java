@@ -1,4 +1,3 @@
-import java.util.Scanner;
 
 public class Sistema {
 
@@ -26,82 +25,33 @@ public class Sistema {
     }
 
     public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
-
-        Sistema s = new Sistema(1024);
+        // 1) componentes básicos
+        Sistema s = new Sistema(1024); // cria HW, SO, utils, programs
         GerenteMemoria gm = new GerenteMemoria(s.hw, 16);
-        GerenteProcessos gp = new GerenteProcessos(gm, s.hw, s.progs);
-        Escalonador esc = new Escalonador(gp, s.hw, 5);
+        GerenteProcessos gp = new GerenteProcessos(s.hw);
+        Escalonador esc = new Escalonador(gp, s.hw, 5); // quantum = 5 ticks
 
-        int opcao = -1;
+        // 2) dispositivo de I/O
+        DispositivoIO dispositivo = new DispositivoIO(s.hw, gp, esc, 500); // 500ms por pedido
+        Thread tDisp = new Thread(dispositivo, "DispositivoIO");
+        tDisp.start();
 
-        while (opcao != 0) {
-            System.out.println("\n==============================================");
-            System.out.println("   MENU DO SISTEMA OPERACIONAL - PUCRS");
-            System.out.println("==============================================");
-            System.out.println("1 - Executar programa direto (loadAndExec)");
-            System.out.println("2 - Criar processo (Gerente de Processos)");
-            System.out.println("3 - Listar processos");
-            System.out.println("4 - Mostrar estado da memória");
-            System.out.println("5 - Executar todos os processos (Escalonador)");
-            System.out.println("0 - Sair");
-            System.out.print("Escolha uma opção: ");
+        // 3) syscall handler assíncrono (usa o dispositivo)
+        SysCallHandling sys = new SysCallHandling(s.hw, gp, dispositivo);
 
-            try {
-                opcao = Integer.parseInt(sc.nextLine());
-            } catch (Exception e) {
-                opcao = -1;
-            }
+        // 4) registrar handlers (IH já existe em s.so, substituir o handler de syscall)
+        s.hw.cpu.setAddressOfHandlers(s.so.ih, sys); // setAddressOfHandlers(InterruptHandling, SysCallHandling)
 
-            switch (opcao) {
-                case 1:
-                    System.out.println("\n--- Programas disponíveis ---");
-                    System.out.println("fatorial | fatorialV2 | fibonacci10 | progMinimo | PC | PB");
-                    System.out.print("Digite o nome do programa: ");
-                    String nomeProg = sc.nextLine();
-                    Word[] prog = s.progs.retrieveProgram(nomeProg);
-                    if (prog != null) {
-                        s.so.utils.loadAndExec(prog);
-                    } else {
-                        System.out.println("Programa não encontrado.");
-                    }
-                    break;
+        // 5) thread do hardware (clock)
+        Thread tHardware = new Thread(new ThreadHardware(s.hw, esc), "ThreadHardware");
+        tHardware.start();
 
-                case 2:
-                    System.out.println("\n--- Programas disponíveis ---");
-                    System.out.println("fatorial | fatorialV2 | fibonacci10 | progMinimo | PC | PB");
-                    System.out.print("Digite o nome do programa: ");
-                    String nomeProc = sc.nextLine();
-                    gp.criaProcesso(nomeProc);
-                    break;
+        // 6) shell (interface com usuário) - roda em thread
+        GerenteMemoria gmRef = gm; // apenas para passar ao shell
+        Thread tShell = new Thread(new ThreadShell(s, gp, gmRef, esc), "ThreadShell");
+        tShell.start();
 
-                case 3:
-                    gp.listaProcessos();
-                    break;
-
-                case 4:
-                    gm.mostraFrames();
-                    break;
-
-                case 5:
-                    if (!gp.haProcessosProntos()) {
-                        System.out.println("Fila de prontos vazia.");
-                    } else {
-                        esc.execAll();
-                    }
-                    break;
-
-                case 0:
-                    System.out.println("Encerrando...");
-                    break;
-
-                default:
-                    System.out.println("Opção inválida.");
-                    break;
-            }
-        }
-
-        sc.close();
+        System.out.println("[MainSistema] Sistema iniciado. Shell, Clock e Dispositivo rodando.");
     }
-}
 
+}
