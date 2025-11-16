@@ -95,32 +95,55 @@ public class Escalonador {
     // Mantive execAll por compatibilidade (modo bloqueante antigo)
     public void execAll() {
         System.out.println("\n=== INICIANDO ESCALONAMENTO (modo bloqueante) ===");
+        
         while (gp.haProcessosProntos()) {
             GerenteProcessos.PCB pcb = gp.proximoProcesso();
-            if (pcb == null)
-                break;
+            if (pcb == null) break;
+
             gp.setRodando(pcb);
             pcb.estado = GerenteProcessos.PCB.EstadoProcesso.EXECUTANDO;
             System.out.println("\n[CPU] Rodando processo " + pcb.id + " (" + pcb.nomePrograma + ")");
+            
             gp.restaurarContexto(pcb);
+
             boolean terminou = false;
+            boolean foiBloqueado = false;
+
             try {
-                hw.cpu.run();
-                terminou = true;
+                hw.cpu.run(); // Executa até STOP ou gerar Exceção (Syscall)
+                terminou = true; // Se chegou aqui, é porque deu STOP (fim normal)
+            } catch (SyscallBlockedException sbe) {
+                // --- MUDANÇA PRINCIPAL AQUI ---
+                System.out.println("[Escalonador] Processo " + pcb.id + " solicitou I/O e foi BLOQUEADO.");
+                
+                // 1. Salva onde parou
+                gp.salvarContexto(pcb);
+                
+                // 2. Move para a lista de bloqueados (NÃO volta para fila de prontos agora)
+                gp.bloquearProcesso(pcb);
+                
+                foiBloqueado = true;
+                
             } catch (Exception e) {
-                System.out.println("Erro na execução do processo " + pcb.id);
+                System.out.println("Erro FATAL na execução do processo " + pcb.id + ": " + e.getMessage());
+                terminou = true; // Considera finalizado por erro
             }
+
+            // Lógica de Decisão Pós-Execução
             if (terminou) {
                 System.out.println("Processo " + pcb.id + " finalizado.");
                 pcb.estado = GerenteProcessos.PCB.EstadoProcesso.FINALIZADO;
                 gp.desalocaProcesso(pcb.id);
-            } else {
+            } 
+            // Se não terminou e NÃO foi bloqueado (ex: preempção por tempo, se houvesse), volta pra fila
+            else if (!foiBloqueado) {
                 gp.salvarContexto(pcb);
                 pcb.estado = GerenteProcessos.PCB.EstadoProcesso.PRONTO;
                 gp.refileiraProcesso(pcb);
             }
+
             gp.limparRodando();
         }
-        System.out.println("\n=== TODOS OS PROCESSOS FINALIZADOS ===");
+        System.out.println("\n=== FILA DE PRONTOS VAZIA (Verifique se há processos Bloqueados no Log) ===");
     }
 }

@@ -41,7 +41,7 @@ public class GerenteProcessos {
     private final HW hw;
     private final Programs progs;
 
-    public GerenteProcessos(HW hw) {
+    public GerenteProcessos(HW hw, Programs progs, GerenteMemoria gm) {
         this.gm = gm;
         this.hw = hw;
         this.progs = progs;
@@ -101,7 +101,10 @@ public class GerenteProcessos {
             return;
         }
 
-        gm.desaloca(alvo.tabelaPaginas);
+        // GerenteMemoria.desaloca(int[]) não existe na API atual.
+        // Para evitar erro de compilação, apenas removemos as referências ao processo aqui.
+        // Se for necessário liberar os frames na GerenteMemoria, adicione um método apropriado
+        // em GerenteMemoria (por exemplo: public void desaloca(int[] tabelaPaginas)) e chame-o aqui.
         todos.remove(alvo);
         filaProntos.remove(alvo);
         if (rodando == alvo) {

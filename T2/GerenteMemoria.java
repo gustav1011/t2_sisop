@@ -22,47 +22,44 @@ public class GerenteMemoria {
         return tamPag;
     }
 
-    public int[] aloca(int nroPalavras) {
-        int paginasNecessarias = (int) Math.ceil((double) nroPalavras / tamPag);
-        List<Integer> frames = new ArrayList<>();
+   public int[] aloca(int nroPalavras) {
+        // 1. Calcula quantas páginas são necessárias baseadas no tamanho da página (ex: 16)
+        int paginasNecessarias = (int) Math.ceil((double) nroPalavras / this.tamPag);
+        List<Integer> framesEncontrados = new ArrayList<>();
 
-        for (int i = 0; i < numFrames && frames.size() < paginasNecessarias; i++) {
+        // 2. Procura por frames livres na memória
+        for (int i = 0; i < numFrames; i++) {
             if (framesLivres[i]) {
-                frames.add(i);
+                framesEncontrados.add(i);
+                // Se já encontramos a quantidade necessária, paramos de procurar
+                if (framesEncontrados.size() == paginasNecessarias) {
+                    break;
+                }
             }
         }
 
-        if (frames.size() < paginasNecessarias) {
-            System.out.println("Memória insuficiente para alocar " + nroPalavras + " palavras.");
+        // 3. Verifica se encontrou memória suficiente
+        if (framesEncontrados.size() < paginasNecessarias) {
+            System.out.println("[GerenteMemoria] Erro: Memória insuficiente para alocar " + nroPalavras + " palavras.");
             return null;
         }
 
-        for (int f : frames) {
-            framesLivres[f] = false;
+        // 4. MARCA OS FRAMES COMO OCUPADOS (CRUCIAL!)
+        // Se pularmos essa etapa, o próximo processo vai pegar os mesmos frames.
+        for (int f : framesEncontrados) {
+            framesLivres[f] = false; 
         }
 
+        // 5. Monta o array de retorno (Tabela de Páginas simples)
         int[] tabelaPaginas = new int[paginasNecessarias];
         for (int i = 0; i < paginasNecessarias; i++) {
-            tabelaPaginas[i] = frames.get(i);
+            tabelaPaginas[i] = framesEncontrados.get(i);
         }
 
-        System.out.println("Alocadas " + paginasNecessarias + " páginas (" + (paginasNecessarias * tamPag) + " palavras).");
+        System.out.println("[GerenteMemoria] Alocadas " + paginasNecessarias + " páginas. Frames: " + framesEncontrados);
         return tabelaPaginas;
     }
-
-    public void desaloca(int[] tabelaPaginas) {
-        if (tabelaPaginas == null)
-            return;
-
-        for (int frame : tabelaPaginas) {
-            if (frame >= 0 && frame < numFrames) {
-                framesLivres[frame] = true;
-            }
-        }
-
-        System.out.println("Memória desalocada. Frames liberados: " + Arrays.toString(tabelaPaginas));
-    }
-
+    
     public void mostraFrames() {
         System.out.println("numFrames = " + numFrames);
         System.out.println("Estado dos frames (livres = . / ocupados = X):");

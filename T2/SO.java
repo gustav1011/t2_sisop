@@ -3,9 +3,9 @@ public class SO {
     public final SysCallHandling sc;
     public final Utilities utils;
 
-    public SO(HW hw) {
+    public SO(HW hw, SysCallHandling syscall, GerenteProcessos dispositivo, DispositivoIO gp) {
         ih = new InterruptHandling(hw);
-        syscall = new SysCallHandling(hw, esc, gp, dispositivo);
+        sc = new SysCallHandling(hw, dispositivo, gp);
         hw.cpu.setAddressOfHandlers(ih, sc);
         utils = new Utilities(hw);
     }

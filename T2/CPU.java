@@ -241,6 +241,7 @@ public class CPU {
                 break;
 
             case SYSCALL:
+                pc++;
                 // handler enfileira pedido e lança SyscallBlockedException; NÃO avançamos PC
                 // aqui
                 sysCall.handle();
