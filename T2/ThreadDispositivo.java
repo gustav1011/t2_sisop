@@ -1,5 +1,13 @@
-class ThreadDispositivo implements Runnable {
+public class ThreadDispositivo implements Runnable {
+
+    private final DispositivoIO dispositivo;
+
+    public ThreadDispositivo(DispositivoIO dispositivo) {
+        this.dispositivo = dispositivo;
+    }
+
+    @Override
     public void run() {
-        // vazio por enquanto
+        dispositivo.run();
     }
 }

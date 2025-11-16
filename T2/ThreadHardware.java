@@ -1,23 +1,32 @@
 public class ThreadHardware implements Runnable {
 
-    private HW hw;
-    private Escalonador esc;
+    private final HW hw;
+    private final Escalonador esc;
+    private final int clockMs;
 
-    public ThreadHardware(HW hw, Escalonador esc) {
+    /**
+     * @param hw      Referência ao hardware
+     * @param esc     Escalonador que vai receber interrupções de clock
+     * @param clockMs tempo do “tic” do clock em ms
+     */
+    public ThreadHardware(HW hw, Escalonador esc, int clockMs) {
         this.hw = hw;
         this.esc = esc;
+        this.clockMs = clockMs;
     }
 
     @Override
     public void run() {
-        while (true) {
+        System.out.println("[Clock] ThreadHardware iniciada. Tick=" + clockMs + "ms");
 
+        while (true) {
             try {
-                Thread.sleep(100); // clock 100 ms
+                Thread.sleep(clockMs);
             } catch (InterruptedException e) {
+                System.out.println("[Clock] Interrompido.");
+                return;
             }
 
-            // gera interrupção de clock
             esc.interrupcaoClock();
         }
     }

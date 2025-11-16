@@ -1,7 +1,6 @@
-public enum Interrupts { // possiveis interrupcoes que esta CPU gera
+public enum Interrupts {
     noInterrupt,
     intEnderecoInvalido,
     intInstrucaoInvalida,
     intOverflow;
 }
-

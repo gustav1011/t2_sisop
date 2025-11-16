@@ -1,274 +1,187 @@
-public class CPU {
-    private final int maxInt;
-    private final int minInt;
-    private int pc;
-    private Word ir;
-    private final int[] reg;
-    private Interrupts irpt;
-    private final Word[] m;
+import java.util.Arrays;
+
+public class CPU implements Runnable {
+
+    private final HW hw;
+    private final GerenteProcessos gp;
+
     private InterruptHandling ih;
-    private SysCallHandling sysCall;
-    private boolean cpuStop; // HALT indicator
-    private final boolean debug;
-    private Utilities u;
+    private SysCallHandling sh;
+    private Utilities utils;
 
-    public CPU(Memory _mem, boolean _debug) {
-        maxInt = 32767;
-        minInt = -32767;
-        m = _mem.pos;
-        reg = new int[10];
-        debug = _debug;
+    private int pc;
+    private int[] registradores;
+    private boolean stopped = true;
+    private boolean rodando = true;
+
+    public CPU(HW hw, GerenteProcessos gp) {
+        this.hw = hw;
+        this.gp = gp;
+        this.registradores = new int[10];
+        this.pc = 0;
     }
 
-    public void setAddressOfHandlers(InterruptHandling _ih, SysCallHandling _sysCall) {
-        ih = _ih;
-        sysCall = _sysCall;
+    // usado pelo SO para conectar handlers
+    public void setAddressOfHandlers(InterruptHandling ih, SysCallHandling sh) {
+        this.ih = ih;
+        this.sh = sh;
     }
 
-    public void setUtilities(Utilities _u) {
-        u = _u;
+    public void setUtilities(Utilities u) {
+        this.utils = u;
     }
 
-    private boolean legal(int e) {
-        if (e >= 0 && e < m.length) {
-            return true;
-        } else {
-            irpt = Interrupts.intEnderecoInvalido;
-            return false;
-        }
+    public void stop() {
+        stopped = true;
     }
 
-    private boolean testOverflow(int v) {
-        if ((v < minInt) || (v > maxInt)) {
-            irpt = Interrupts.intOverflow;
-            return false;
-        }
-        return true;
-    }
-
-    public void setContext(int _pc) {
-        pc = _pc;
-        irpt = Interrupts.noInterrupt;
-    }
-
-    public boolean isStopped() {
-        return cpuStop;
-    }
-
-    public void setStopped(boolean value) {
-        cpuStop = value;
-    }
-
-    public boolean isHalted() {
-        return cpuStop;
+    public void setStopped(boolean b) {
+        stopped = b;
     }
 
     public int getPc() {
         return pc;
     }
 
-    public int getRegister(int index) {
-        return reg[index];
+    public void setContext(int novoPC) {
+        this.pc = novoPC;
+        stopped = false;
     }
 
     public void copyRegistersTo(int[] destino) {
-        System.arraycopy(reg, 0, destino, 0, Math.min(reg.length, destino.length));
+        System.arraycopy(registradores, 0, destino, 0, registradores.length);
     }
 
     public void restoreRegisters(int[] origem) {
-        System.arraycopy(origem, 0, reg, 0, Math.min(reg.length, origem.length));
+        System.arraycopy(origem, 0, registradores, 0, origem.length);
     }
 
-    /**
-     * Executa UMA instrução. Se a instrução for SYSCALL, SysCallHandling.handle()
-     * pode lançar SyscallBlockedException para sinalizar bloqueio.
-     */
-    public void step() {
-        irpt = Interrupts.noInterrupt;
+    // tradução de endereço lógico → físico
+    private int traduz(int enderecoLogico, GerenteProcessos.PCB pcb) throws PageFaultException {
 
-        if (!legal(pc)) {
-            ih.handle(irpt);
-            cpuStop = true;
-            return;
+        int pagina = enderecoLogico / hw.gm.getTamPag();
+        int desloc = enderecoLogico % hw.gm.getTamPag();
+
+        if (pagina >= pcb.tabelaPaginas.length) {
+            throw new RuntimeException("Acesso ilegal fora do programa");
         }
 
-        ir = m[pc];
+        PageTableEntry pte = pcb.tabelaPaginas[pagina];
 
-        if (debug) {
-            System.out.print("                                              regs: ");
-            for (int i = 0; i < 10; i++) {
-                System.out.print(" r[" + i + "]:" + reg[i]);
-            }
-            System.out.println();
-            System.out.print("                      pc: " + pc + "       exec: ");
-            u.dump(ir);
+        // PAGE FAULT
+        if (!pte.present) {
+            throw new PageFaultException(pcb.id, pagina);
         }
 
-        switch (ir.opc) {
-            case LDI:
-                reg[ir.ra] = ir.p;
+        return pte.frame * hw.gm.getTamPag() + desloc;
+    }
+
+    private int lerMemoria(int enderecoLogico, GerenteProcessos.PCB pcb) throws PageFaultException {
+        int fisico = traduz(enderecoLogico, pcb);
+        return hw.memory.mem[fisico].p;
+    }
+
+    private void escreverMemoria(int enderecoLogico, int valor, GerenteProcessos.PCB pcb) throws PageFaultException {
+        int fisico = traduz(enderecoLogico, pcb);
+        hw.memory.mem[fisico].p = valor;
+
+        // marcar página como modificada
+        int pagina = enderecoLogico / hw.gm.getTamPag();
+        pcb.tabelaPaginas[pagina].dirty = true;
+    }
+
+    // decodificação e execução de instrução
+    private void executarInstrucao(GerenteProcessos.PCB pcb) throws PageFaultException {
+
+        int enderecoFisico = traduz(pc, pcb);
+        Word instr = hw.memory.mem[enderecoFisico];
+
+        switch (instr.opc) {
+
+            case NOP:
                 pc++;
                 break;
-            case LDD:
-                if (legal(ir.p)) {
-                    reg[ir.ra] = m[ir.p].p;
-                    pc++;
-                }
-                break;
-            case LDX:
-                if (legal(reg[ir.rb])) {
-                    reg[ir.ra] = m[reg[ir.rb]].p;
-                    pc++;
-                }
-                break;
-            case STD:
-                if (legal(ir.p)) {
-                    m[ir.p].opc = Opcode.DATA;
-                    m[ir.p].p = reg[ir.ra];
-                    pc++;
-                    if (debug) {
-                        System.out.print("                                  ");
-                        u.dump(ir.p, ir.p + 1);
-                    }
-                }
-                break;
-            case STX:
-                if (legal(reg[ir.ra])) {
-                    m[reg[ir.ra]].opc = Opcode.DATA;
-                    m[reg[ir.ra]].p = reg[ir.rb];
-                    pc++;
-                }
-                break;
-            case MOVE:
-                reg[ir.ra] = reg[ir.rb];
-                pc++;
-                break;
+
             case ADD:
-                reg[ir.ra] = reg[ir.ra] + reg[ir.rb];
-                testOverflow(reg[ir.ra]);
+                registradores[instr.ra] = registradores[instr.rb] + instr.p;
                 pc++;
-                break;
-            case ADDI:
-                reg[ir.ra] = reg[ir.ra] + ir.p;
-                testOverflow(reg[ir.ra]);
-                pc++;
-                break;
-            case SUB:
-                reg[ir.ra] = reg[ir.ra] - reg[ir.rb];
-                testOverflow(reg[ir.ra]);
-                pc++;
-                break;
-            case SUBI:
-                reg[ir.ra] = reg[ir.ra] - ir.p;
-                testOverflow(reg[ir.ra]);
-                pc++;
-                break;
-            case MULT:
-                reg[ir.ra] = reg[ir.ra] * reg[ir.rb];
-                testOverflow(reg[ir.ra]);
-                pc++;
-                break;
-            case JMP:
-                pc = ir.p;
-                break;
-            case JMPIM:
-                pc = m[ir.p].p;
-                break;
-            case JMPIG:
-                if (reg[ir.rb] > 0)
-                    pc = reg[ir.ra];
-                else
-                    pc++;
-                break;
-            case JMPIGK:
-                if (reg[ir.rb] > 0)
-                    pc = ir.p;
-                else
-                    pc++;
-                break;
-            case JMPILK:
-                if (reg[ir.rb] < 0)
-                    pc = ir.p;
-                else
-                    pc++;
-                break;
-            case JMPIEK:
-                if (reg[ir.rb] == 0)
-                    pc = ir.p;
-                else
-                    pc++;
-                break;
-            case JMPIL:
-                if (reg[ir.rb] < 0)
-                    pc = reg[ir.ra];
-                else
-                    pc++;
-                break;
-            case JMPIE:
-                if (reg[ir.rb] == 0)
-                    pc = reg[ir.ra];
-                else
-                    pc++;
-                break;
-            case JMPIGM:
-                if (legal(ir.p)) {
-                    if (reg[ir.rb] > 0)
-                        pc = m[ir.p].p;
-                    else
-                        pc++;
-                }
-                break;
-            case JMPILM:
-                if (reg[ir.rb] < 0)
-                    pc = m[ir.p].p;
-                else
-                    pc++;
-                break;
-            case JMPIEM:
-                if (reg[ir.rb] == 0)
-                    pc = m[ir.p].p;
-                else
-                    pc++;
-                break;
-            case JMPIGT:
-                if (reg[ir.ra] > reg[ir.rb])
-                    pc = ir.p;
-                else
-                    pc++;
-                break;
-            case DATA:
-                irpt = Interrupts.intInstrucaoInvalida;
                 break;
 
-            case SYSCALL:
+            case SUB:
+                registradores[instr.ra] = registradores[instr.rb] - instr.p;
                 pc++;
-                // handler enfileira pedido e lança SyscallBlockedException; NÃO avançamos PC
-                // aqui
-                sysCall.handle();
-                // se o handler não lançar exceção, não avançamos o PC: o processo deve
-                // permanecer na syscall
-                return;
+                break;
+
+            case JMP:
+                pc = instr.p;
+                break;
+
+            case JNZ:
+                if (registradores[instr.ra] != 0)
+                    pc = instr.p;
+                else
+                    pc++;
+                break;
+
+            case SYS:
+                sh.handleSyscall(instr.p, pcb);
+                break;
+
+            case STR: // MEM[regB + p] = regA
+                escreverMemoria(registradores[instr.rb] + instr.p, registradores[instr.ra], pcb);
+                pc++;
+                break;
+
+            case LOAD: // regA = MEM[regB + p]
+                registradores[instr.ra] = lerMemoria(registradores[instr.rb] + instr.p, pcb);
+                pc++;
+                break;
 
             case STOP:
-                sysCall.stop();
-                cpuStop = true;
-                return;
+                pcb.estado = GerenteProcessos.PCB.EstadoProcesso.FINALIZADO;
+                stopped = true;
+                break;
 
             default:
-                irpt = Interrupts.intInstrucaoInvalida;
-                break;
-        }
-
-        if (irpt != Interrupts.noInterrupt) {
-            ih.handle(irpt);
-            cpuStop = true;
+                throw new RuntimeException("[CPU] opcode invalido: " + instr.opc);
         }
     }
 
+    @Override
     public void run() {
-        cpuStop = false;
-        while (!cpuStop) {
-            step();
+
+        System.out.println("[CPU] Iniciada!");
+
+        while (rodando) {
+
+            if (stopped) {
+                try {
+                    Thread.sleep(1);
+                } catch (Exception e) {
+                }
+                continue;
+            }
+
+            GerenteProcessos.PCB pcb = gp.getRodando();
+            if (pcb == null) {
+                try {
+                    Thread.sleep(1);
+                } catch (Exception e) {
+                }
+                continue;
+            }
+
+            try {
+                executarInstrucao(pcb);
+            } catch (Exception e) {
+                System.out.println("[CPU] ERRO: " + e.getMessage());
+                stopped = true;
+            }
+
         }
+    }
+
+    public void setSysCallHandler(SysCallHandling syscall) {
+        throw new UnsupportedOperationException("Unimplemented method 'setSysCallHandler'");
     }
 }

@@ -1,50 +1,66 @@
 public class Utilities {
-    private final HW hw;
 
-    public Utilities(HW _hw) {
-        hw = _hw;
-    }
-
-    private void loadProgram(Word[] p) {
-        Word[] m = hw.mem.pos;
-        for (int i = 0; i < p.length; i++) {
-            m[i].opc = p[i].opc;
-            m[i].ra = p[i].ra;
-            m[i].rb = p[i].rb;
-            m[i].p = p[i].p;
+    public static void printProgram(Word[] program) {
+        if (program == null) {
+            System.out.println("null");
+            return;
         }
-    }
 
-    public void dump(Word w) {
-        System.out.print("[ ");
-        System.out.print(w.opc);
-        System.out.print(", ");
-        System.out.print(w.ra);
-        System.out.print(", ");
-        System.out.print(w.rb);
-        System.out.print(", ");
-        System.out.print(w.p);
-        System.out.println("  ] ");
-    }
-
-    public void dump(int ini, int fim) {
-        Word[] m = hw.mem.pos;
-        for (int i = ini; i < fim; i++) {
-            System.out.print(i);
-            System.out.print(":  ");
-            dump(m[i]);
+        System.out.println("=== PROGRAM ===");
+        for (int i = 0; i < program.length; i++) {
+            System.out.println(i + ": " + program[i]);
         }
+        System.out.println("================");
     }
 
-    public void loadAndExec(Word[] p) {
-        loadProgram(p);
-        System.out.println("---------------------------------- programa carregado na memoria");
-        dump(0, p.length);
-        hw.cpu.setContext(0);
-        System.out.println("---------------------------------- inicia execucao ");
-        hw.cpu.run();
-        System.out.println("---------------------------------- memoria após execucao ");
-        dump(0, p.length);
+    public static void printArray(int[] arr, String title) {
+        System.out.println("=== " + title + " ===");
+        for (int i = 0; i < arr.length; i++) {
+            System.out.print(arr[i] + " ");
+        }
+        System.out.println("\n====================");
+    }
+
+    public static void printMatrix(int[][] matrix, String title) {
+        System.out.println("=== " + title + " ===");
+        for (int i = 0; i < matrix.length; i++) {
+            for (int j = 0; j < matrix[i].length; j++) {
+                System.out.printf("%4d ", matrix[i][j]);
+            }
+            System.out.println();
+        }
+        System.out.println("====================");
+    }
+
+    public static void fillMatrix(int[][] matrix, int value) {
+        for (int i = 0; i < matrix.length; i++)
+            for (int j = 0; j < matrix[i].length; j++)
+                matrix[i][j] = value;
+    }
+
+    public static void fillArray(int[] arr, int value) {
+        for (int i = 0; i < arr.length; i++)
+            arr[i] = value;
+    }
+
+    public static String pad(int num, int digits) {
+        return String.format("%0" + digits + "d", num);
+    }
+
+    public static String padRight(String s, int n) {
+        if (s == null)
+            s = "";
+        return String.format("%1$-" + n + "s", s);
+    }
+
+    public static int b(boolean v) {
+        return v ? 1 : 0;
+    }
+
+    public static void sleep(int ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ignored) {
+        }
     }
 }
-

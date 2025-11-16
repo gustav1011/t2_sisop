@@ -1,74 +1,122 @@
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 public class GerenteMemoria {
-    private final int tamMem;
-    private final int tamPag;
-    private final int numFrames;
-    private final boolean[] framesLivres;
-    private final HW hw;
 
-    public GerenteMemoria(HW hw, int tamPag) {
-        this.hw = hw;
-        this.tamMem = hw.mem.pos.length;
+    private final Memory mem;
+    private final int tamPag;
+    private final int qtdFrames;
+
+    private final Queue<Integer> livres = new LinkedList<>();
+
+    private final Queue<Integer> filaFIFO = new LinkedList<>();
+
+    private final Disco disco;
+
+    public GerenteMemoria(Memory mem, int tamPag, Disco disco) {
+        this.mem = mem;
         this.tamPag = tamPag;
-        this.numFrames = tamMem / tamPag;
-        this.framesLivres = new boolean[numFrames];
-        Arrays.fill(framesLivres, true);
+        this.disco = disco;
+
+        this.qtdFrames = mem.tamMem / tamPag;
+
+        for (int f = 0; f < qtdFrames; f++) {
+            livres.add(f);
+        }
+    }
+
+    public GerenteMemoria(HW hw, int tamPagina) {
+        // TODO Auto-generated constructor stub
+    }
+
+    GerenteMemoria(HW hw, int tamPagina) {
+        throw new UnsupportedOperationException("Not supported yet.");
     }
 
     public int getTamPag() {
         return tamPag;
     }
 
-   public int[] aloca(int nroPalavras) {
-        // 1. Calcula quantas páginas são necessárias baseadas no tamanho da página (ex: 16)
-        int paginasNecessarias = (int) Math.ceil((double) nroPalavras / this.tamPag);
-        List<Integer> framesEncontrados = new ArrayList<>();
+    public int getQtdFrames() {
+        return qtdFrames;
+    }
 
-        // 2. Procura por frames livres na memória
-        for (int i = 0; i < numFrames; i++) {
-            if (framesLivres[i]) {
-                framesEncontrados.add(i);
-                // Se já encontramos a quantidade necessária, paramos de procurar
-                if (framesEncontrados.size() == paginasNecessarias) {
-                    break;
+    public synchronized int alocaFrame() throws PageFaultException {
+
+        if (!livres.isEmpty()) {
+            int frame = livres.poll();
+            filaFIFO.add(frame);
+            System.out.println("[GM] Alocado frame livre: " + frame);
+            return frame;
+        }
+
+        int frameVitimado = filaFIFO.poll();
+
+        System.out.println("[GM] Sem frames livres. Vítima = frame " + frameVitimado);
+
+        int slot = disco.alocarSlot();
+
+        disco.salvarPagina(slot, mem, frameVitimado, tamPag);
+
+        livres.add(frameVitimado);
+
+        System.out.println("[GM] Página vitimada salva no slot " + slot);
+
+        throw new PageFaultException(frameVitimado, slot);
+    }
+
+    public synchronized void carregarPagina(Word[] programa, int pagina, PageTableEntry pte) throws PageFaultException {
+
+        int frame = pte.frame;
+
+        if (frame < 0) {
+            frame = alocaFrame();
+            pte.frame = frame;
+        }
+
+        int baseFisica = frame * tamPag;
+
+        if (!pte.onDisk) {
+            for (int i = 0; i < tamPag; i++) {
+                int idxProg = pagina * tamPag + i;
+                if (idxProg < programa.length) {
+                    mem.pos[baseFisica + i].cloneFrom(programa[idxProg]);
+                } else {
+                    mem.pos[baseFisica + i].clear();
                 }
+            }
+            System.out.println("[GM] Página " + pagina + " carregada do programa → frame " + frame);
+        } else {
+            disco.carregarPagina(pte.diskSlot, mem, frame, tamPag);
+            System.out.println("[GM] Página " + pagina + " carregada do DISCO → frame " + frame);
+        }
+
+        pte.present = true;
+    }
+
+    public synchronized void desalocarProcesso(PageTableEntry[] tabela) {
+
+        for (PageTableEntry pte : tabela) {
+            if (pte.present && pte.frame >= 0) {
+                livres.add(pte.frame);
+                filaFIFO.remove(pte.frame);
+            }
+
+            if (pte.onDisk && pte.diskSlot >= 0) {
+                disco.liberarSlot(pte.diskSlot);
             }
         }
 
-        // 3. Verifica se encontrou memória suficiente
-        if (framesEncontrados.size() < paginasNecessarias) {
-            System.out.println("[GerenteMemoria] Erro: Memória insuficiente para alocar " + nroPalavras + " palavras.");
-            return null;
-        }
-
-        // 4. MARCA OS FRAMES COMO OCUPADOS (CRUCIAL!)
-        // Se pularmos essa etapa, o próximo processo vai pegar os mesmos frames.
-        for (int f : framesEncontrados) {
-            framesLivres[f] = false; 
-        }
-
-        // 5. Monta o array de retorno (Tabela de Páginas simples)
-        int[] tabelaPaginas = new int[paginasNecessarias];
-        for (int i = 0; i < paginasNecessarias; i++) {
-            tabelaPaginas[i] = framesEncontrados.get(i);
-        }
-
-        System.out.println("[GerenteMemoria] Alocadas " + paginasNecessarias + " páginas. Frames: " + framesEncontrados);
-        return tabelaPaginas;
+        System.out.println("[GM] Processo desalocado (frames + slots liberados).");
     }
-    
-    public void mostraFrames() {
-        System.out.println("numFrames = " + numFrames);
-        System.out.println("Estado dos frames (livres = . / ocupados = X):");
-        for (int i = 0; i < numFrames; i++) {
-            System.out.print(framesLivres[i] ? "." : "X");
-            if ((i + 1) % 64 == 0)
-                System.out.println();
+
+    public int traduzEndereco(int pagina, int desloc, PageTableEntry[] tabela) throws PageFaultException {
+
+        PageTableEntry pte = tabela[pagina];
+
+        if (!pte.present) {
+            throw new PageFaultException(pagina);
         }
-        System.out.println();
+
+        return pte.frame * tamPag + desloc;
     }
 }
-

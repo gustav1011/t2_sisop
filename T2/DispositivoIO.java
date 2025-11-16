@@ -1,83 +1,73 @@
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.LinkedList;
+import java.util.Queue;
 
 public class DispositivoIO implements Runnable {
 
-    private final BlockingQueue<PedidoIO> fila = new LinkedBlockingQueue<>();
-    private final HW hw;
-    private final GerenteProcessos gp;
-    private final Escalonador esc;
-    private final int tempoIOms;
-    private volatile boolean running = true;
+    public static class IORequest {
+        public final int pid;
+        public final int address;
 
-    public DispositivoIO(HW hw, GerenteProcessos gp, Escalonador esc, int tempoIOms) {
-        this.hw = hw;
-        this.gp = gp;
-        this.esc = esc;
-        this.tempoIOms = tempoIOms;
-    }
-
-    public void submit(PedidoIO pedido) {
-        try {
-            fila.put(pedido);
-            System.out.println("[DispositivoIO] Pedido enfileirado: " + pedido);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            System.out.println("[DispositivoIO] submit interrompido");
+        public IORequest(int pid, int address) {
+            this.pid = pid;
+            this.address = address;
         }
     }
 
-    public void shutdown() {
-        running = false;
-        Thread.currentThread().interrupt();
+    private final Queue<IORequest> fila = new LinkedList<>();
+
+    private final HW hw;
+    private final GerenteProcessos gp;
+    private final Escalonador esc;
+
+    private final int tempoIOms;
+
+    public DispositivoIO(HW hw, GerenteProcessos gp, Escalonador esc, Disco disco) {
+        this.hw = hw;
+        this.gp = gp;
+        this.esc = esc;
+        this.tempoIOms = disco;
+    }
+
+    public synchronized void requisitarIO(int pid, int address) {
+        fila.add(new IORequest(pid, address));
+        System.out.println("[IO] Requisição recebida do processo " + pid);
+        notifyAll();
     }
 
     @Override
     public void run() {
-        System.out.println("[DispositivoIO] Iniciando dispositivo (tempoIO=" + tempoIOms + " ms)");
-        while (running) {
-            try {
-                PedidoIO p = fila.take(); // bloqueia até ter pedido
-                System.out.println("[DispositivoIO] Processando " + p);
+        System.out.println("[IO] Thread do dispositivo iniciada.");
+
+        while (true) {
+            IORequest req = null;
+
+            synchronized (this) {
+                while (fila.isEmpty()) {
+                    try {
+                        wait();
+                    } catch (InterruptedException ignored) {
+                    }
+                }
+                req = fila.poll();
+            }
+
+            if (req != null) {
+                System.out.println("[IO] Executando I/O para processo " + req.pid +
+                        " (end=" + req.address + ")");
 
                 try {
                     Thread.sleep(tempoIOms);
-                } catch (InterruptedException ie) {
-                    if (!running)
-                        break;
-                    Thread.currentThread().interrupt();
+                } catch (InterruptedException ignored) {
                 }
 
-                // DMA: escreve/ler diretamente na memória física
-                if (p.rw == PedidoIO.IN) {
-                    int valorLido = (int) (Math.random() * 100); // simulação
-                    hw.mem.pos[p.endereco].opc = Opcode.DATA;
-                    hw.mem.pos[p.endereco].p = valorLido;
-                    System.out.println("[DispositivoIO] IN concluído: pid=" + p.pid + " endereco=" + p.endereco
-                            + " valor=" + valorLido);
-                } else if (p.rw == PedidoIO.OUT) {
-                    int valor = hw.mem.pos[p.endereco].p;
-                    System.out.println(
-                            "[DispositivoIO] OUT (pid=" + p.pid + "): endereco=" + p.endereco + " valor=" + valor);
-                } else {
-                    System.out.println("[DispositivoIO] Pedido inválido: " + p);
-                }
+                System.out.println("[IO] I/O concluída para processo " + req.pid);
 
-                // 1) desbloqueia processo no Gerente de Processos
-                gp.desbloquearProcessoById(p.pid);
+                gp.desbloquearProcessoById(req.pid);
 
-                // 2) notifica o escalonador sobre a interrupção de IO
-                esc.interrupcaoIO(p.pid);
+                esc.notificarIOConcluido();
 
-            } catch (InterruptedException e) {
-                if (!running)
-                    break;
-                Thread.currentThread().interrupt();
-            } catch (Exception e) {
-                System.out.println("[DispositivoIO] Erro: " + e.getMessage());
-                e.printStackTrace();
+                hw.cpu.interruptIO(req.pid);
             }
         }
-        System.out.println("[DispositivoIO] Finalizando dispositivo.");
     }
 }

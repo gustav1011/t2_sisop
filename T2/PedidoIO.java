@@ -1,22 +1,32 @@
 public class PedidoIO {
-    public static final int IN = 1;
-    public static final int OUT = 2;
 
-    public final int pid; // processo solicitante
-    public final int rw; // IN ou OUT
-    public final int endereco; // endereço de memória alvo
-    public final int valor; // valor para OUT (opcional para IN)
+    public enum Tipo {
+        LEITURA,
+        ESCRITA,
+        PAGE_IN,
+        PAGE_OUT
+    }
 
-    public PedidoIO(int pid, int rw, int endereco, int valor) {
+    public final int pid;
+    public final Tipo tipo;
+    public final int page;
+    public final int frame;
+    public final int diskSlot;
+
+    public PedidoIO(int pid, Tipo tipo, int page, int frame, int diskSlot) {
         this.pid = pid;
-        this.rw = rw;
-        this.endereco = endereco;
-        this.valor = valor;
+        this.tipo = tipo;
+        this.page = page;
+        this.frame = frame;
+        this.diskSlot = diskSlot;
     }
 
     @Override
     public String toString() {
-        String tipo = (rw == IN) ? "IN" : (rw == OUT) ? "OUT" : "UNK";
-        return "PedidoIO{pid=" + pid + ", tipo=" + tipo + ", endereco=" + endereco + ", valor=" + valor + "}";
+        return "[IO pid=" + pid +
+                ", tipo=" + tipo +
+                ", page=" + page +
+                ", frame=" + frame +
+                ", diskSlot=" + diskSlot + "]";
     }
 }

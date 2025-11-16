@@ -1,212 +1,98 @@
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Queue;
+import java.util.*;
 
 public class GerenteProcessos {
 
-    public static class PCB {
-
-        public enum EstadoProcesso {
-            PRONTO,
-            EXECUTANDO,
-            BLOQUEADO,
-            FINALIZADO
-        }
-
-        public final int id;
-        public final int[] registradores;
-        public final int[] tabelaPaginas;
-        public final String nomePrograma;
-        public EstadoProcesso estado;
-        public int pc;
-
-        public PCB(int id, String nomePrograma, int[] tabelaPaginas) {
-            this.id = id;
-            this.nomePrograma = nomePrograma;
-            this.tabelaPaginas = tabelaPaginas;
-            this.pc = 0;
-            this.registradores = new int[10];
-            this.estado = EstadoProcesso.PRONTO;
-        }
-
-    }
-
-    private int proximoId = 1;
-    private final Queue<PCB> filaProntos = new LinkedList<>();
-    private final List<PCB> todos = new ArrayList<>();
-    private PCB rodando = null;
+    private int nextPID = 1;
 
     private final GerenteMemoria gm;
-    private final HW hw;
-    private final Programs progs;
+    private final Disco disco;
 
-    public GerenteProcessos(HW hw, Programs progs, GerenteMemoria gm) {
+    private final Map<Integer, PCB> processos = new HashMap<>();
+
+    private final Queue<PCB> prontos = new LinkedList<>();
+
+    public GerenteProcessos(GerenteMemoria gm, Disco disco) {
         this.gm = gm;
-        this.hw = hw;
-        this.progs = progs;
+        this.disco = disco;
     }
 
-    public synchronized boolean criaProcesso(String nomePrograma) {
-        Word[] programa = progs.retrieveProgram(nomePrograma);
-        if (programa == null) {
-            System.out.println("Programa não encontrado: " + nomePrograma);
-            return false;
-        }
-
-        int[] tabelaPaginas = gm.aloca(programa.length);
-        if (tabelaPaginas == null) {
-            System.out.println("Sem memória suficiente para o processo " + nomePrograma);
-            return false;
-        }
-
-        carregarPrograma(programa, tabelaPaginas);
-
-        PCB pcb = new PCB(proximoId++, nomePrograma, tabelaPaginas);
-        filaProntos.add(pcb);
-        todos.add(pcb);
-
-        System.out.println("Processo criado: id=" + pcb.id + " (" + nomePrograma + ")");
-        return true;
+    public GerenteProcessos(HW hw, Programs progs, GerenteMemoria gm2) {
+        // TODO Auto-generated constructor stub
     }
 
-    private void carregarPrograma(Word[] programa, int[] tabelaPaginas) {
-        Word[] mem = hw.mem.pos;
-        int tamPag = gm.getTamPag();
+    public PCB criarProcesso(Word[] programa) throws PageFaultException {
 
-        for (int i = 0; i < programa.length; i++) {
-            int pagina = i / tamPag;
-            int desloc = i % tamPag;
-            int frame = tabelaPaginas[pagina];
-            int enderecoFisico = frame * tamPag + desloc;
+        int pid = nextPID++;
 
-            mem[enderecoFisico].opc = programa[i].opc;
-            mem[enderecoFisico].ra = programa[i].ra;
-            mem[enderecoFisico].rb = programa[i].rb;
-            mem[enderecoFisico].p = programa[i].p;
+        PCB pcb = new PCB(pid);
+
+        int paginas = (int) Math.ceil((double) programa.length / gm.getTamPag());
+
+        pcb.pageTable = new PageTableEntry[paginas];
+
+        for (int p = 0; p < paginas; p++) {
+            pcb.pageTable[p] = new PageTableEntry();
         }
+
+        gm.carregarPagina(programa, 0, pcb.pageTable[0]);
+
+        pcb.estado = Estado.READY;
+        pcb.program = programa;
+
+        processos.put(pid, pcb);
+        prontos.add(pcb);
+
+        System.out.println("[GP] Processo PID=" + pid + " criado com " + paginas + " páginas.");
+
+        return pcb;
     }
 
-    public synchronized void desalocaProcesso(int id) {
-        PCB alvo = null;
-        for (PCB p : todos) {
-            if (p.id == id) {
-                alvo = p;
-                break;
-            }
-        }
-
-        if (alvo == null) {
-            System.out.println("Processo " + id + " não encontrado.");
-            return;
-        }
-
-        // GerenteMemoria.desaloca(int[]) não existe na API atual.
-        // Para evitar erro de compilação, apenas removemos as referências ao processo aqui.
-        // Se for necessário liberar os frames na GerenteMemoria, adicione um método apropriado
-        // em GerenteMemoria (por exemplo: public void desaloca(int[] tabelaPaginas)) e chame-o aqui.
-        todos.remove(alvo);
-        filaProntos.remove(alvo);
-        if (rodando == alvo) {
-            rodando = null;
-        }
-
-        System.out.println("Processo " + id + " desalocado.");
+    public PCB obterProximoProcesso() {
+        if (prontos.isEmpty())
+            return null;
+        PCB pcb = prontos.poll();
+        pcb.estado = Estado.RUNNING;
+        return pcb;
     }
 
-    public synchronized void listaProcessos() {
-        System.out.println("----- Lista de Processos -----");
-        for (PCB p : todos) {
-            System.out.println("ID: " + p.id + " | Nome: " + p.nomePrograma + " | Estado: " + p.estado);
+    public void devolverParaProntos(PCB pcb) {
+        if (pcb != null && pcb.estado != Estado.FINISHED) {
+            pcb.estado = Estado.READY;
+            prontos.add(pcb);
         }
     }
 
-    public synchronized void executaProcesso(int id) {
-        for (PCB p : todos) {
-            if (p.id == id) {
-                rodando = p;
-                p.estado = PCB.EstadoProcesso.EXECUTANDO;
-                System.out.println("Executando processo " + p.id + " (" + p.nomePrograma + ")");
-                hw.cpu.setContext(0);
-                hw.cpu.run();
-                p.estado = PCB.EstadoProcesso.FINALIZADO;
-                rodando = null;
-                return;
-            }
-        }
-        System.out.println("Processo com id " + id + " não encontrado.");
+    public void finalizarProcesso(PCB pcb) {
+        pcb.estado = Estado.FINISHED;
+        processos.remove(pcb.pid);
+        gm.desalocarProcesso(pcb.pageTable);
+        System.out.println("[GP] Processo " + pcb.pid + " finalizado.");
     }
 
-    public synchronized boolean haProcessosProntos() {
-        return !filaProntos.isEmpty();
+    public void tratarPageFault(PCB pcb, int paginaFaltante) throws PageFaultException {
+        System.out.println("[GP] Tratando page-fault do processo " + pcb.pid + " na página " + paginaFaltante);
+
+        gm.carregarPagina(pcb.program, paginaFaltante, pcb.pageTable[paginaFaltante]);
     }
 
-    public synchronized PCB proximoProcesso() {
-        return filaProntos.poll();
+    public boolean temProcessosProntos() {
+        return !prontos.isEmpty();
     }
 
-    public synchronized void refileiraProcesso(PCB pcb) {
-        if (pcb != null) {
-            filaProntos.add(pcb);
-        }
+    public PCB getProcesso(int pid) {
+        return processos.get(pid);
     }
 
-    public synchronized void setRodando(PCB pcb) {
-        rodando = pcb;
+    public int totalProcessos() {
+        return processos.size();
     }
 
-    public synchronized void limparRodando() {
-        rodando = null;
+    public class PCB {
+
+        public Object tabelaPaginas;
     }
 
-    public synchronized void salvarContexto(PCB pcb) {
-        pcb.pc = hw.cpu.getPc();
-        hw.cpu.copyRegistersTo(pcb.registradores);
-        System.out.println("[Contexto salvo] Processo " + pcb.id + " (pc=" + pcb.pc + ")");
-    }
-
-    public synchronized void restaurarContexto(PCB pcb) {
-        hw.cpu.setContext(pcb.pc);
-        hw.cpu.restoreRegisters(pcb.registradores);
-        hw.cpu.setStopped(false);
-        System.out.println("[Contexto restaurado] Processo " + pcb.id + " (pc=" + pcb.pc + ")");
-    }
-
-    // permite que outros componentes saibam qual PCB está rodando
-    public synchronized PCB getRodando() {
-        return rodando;
-    }
-
-    // bloqueia o processo (rodando); espera que o contexto já tenha sido salvo
-    public synchronized void bloquearProcesso(PCB pcb) {
-        if (pcb == null)
-            return;
-        pcb.estado = PCB.EstadoProcesso.BLOQUEADO;
-        // se por acaso estiver na fila de prontos, removemos
-        filaProntos.remove(pcb);
-        System.out.println("[GerenteProcessos] Processo " + pcb.id + " bloqueado.");
-    }
-
-    // desbloqueia por id (chamado pelo dispositivo ao terminar)
-    public synchronized void desbloquearProcessoById(int id) {
-        PCB alvo = null;
-        for (PCB p : todos) {
-            if (p.id == id) {
-                alvo = p;
-                break;
-            }
-        }
-        if (alvo == null) {
-            System.out.println("[GerenteProcessos] desbloquear: processo " + id + " não encontrado.");
-            return;
-        }
-        if (alvo.estado == PCB.EstadoProcesso.BLOQUEADO) {
-            alvo.estado = PCB.EstadoProcesso.PRONTO;
-            filaProntos.add(alvo);
-            System.out.println("[GerenteProcessos] Processo " + id + " desbloqueado e colocado na fila de prontos.");
-        } else {
-            System.out.println(
-                    "[GerenteProcessos] Processo " + id + " não estava bloqueado (estado=" + alvo.estado + ").");
-        }
+    public GerenteProcessos.PCB getRodando() {
+        throw new UnsupportedOperationException("Unimplemented method 'getRodando'");
     }
 }

@@ -1,5 +1,13 @@
-class ThreadCPU implements Runnable {
+public class ThreadCPU implements Runnable {
+
+    private final CPU cpu;
+
+    public ThreadCPU(CPU cpu) {
+        this.cpu = cpu;
+    }
+
+    @Override
     public void run() {
-        // vazio por enquanto
+        cpu.run();
     }
 }

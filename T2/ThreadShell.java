@@ -39,13 +39,12 @@ public class ThreadShell implements Runnable {
             }
 
             switch (opcao) {
-                case 1: // Criar processo
-                    // Lista completa baseada na sua classe Programs
-                    System.out.println("Opções: fatorial, fatorialV2, progMinimo, fibonacci10, fibonacci10v2, fibonacciREAD, PB, PC");
+                case 1:
+                    System.out.println(
+                            "Opções: fatorial, fatorialV2, progMinimo, fibonacci10, fibonacci10v2, fibonacciREAD, PB, PC");
                     System.out.print("Nome do programa: ");
-                    
+
                     String nome = sc.nextLine();
-                    // Verifica se programa existe antes de tentar criar
                     if (sistema.progs.retrieveProgram(nome) != null) {
                         gp.criaProcesso(nome);
                     } else {
@@ -53,22 +52,21 @@ public class ThreadShell implements Runnable {
                     }
                     break;
 
-                case 2: // Antigo case 3
+                case 2:
                     gp.listaProcessos();
                     break;
 
-                case 3: // Antigo case 4
+                case 3:
                     gm.mostraFrames();
                     break;
 
-                case 4: // Antigo case 5
+                case 4:
                     System.out.println("Forçando execução do escalonador...");
-                    esc.execAll(); 
+                    esc.execAll();
                     break;
 
                 case 0:
                     System.out.println("Encerrando Shell...");
-                    // Opcional: Encerrar o sistema todo
                     System.exit(0);
                     break;
 
