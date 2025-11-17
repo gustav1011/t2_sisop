@@ -9,19 +9,18 @@ public class SysCallHandling {
         System.out.println("                                               SYSCALL STOP");
     }
 
-    public void handle() {
+    public SysCallRequest buildRequest(GerenteProcessos.PCB pcb) {
         int rw = hw.cpu.getRegister(8);
         int endereco = hw.cpu.getRegister(9);
 
-        System.out.println("SYSCALL pars:  " + rw + " / " + endereco);
+        System.out.println("SYSCALL: processo " + pcb.id + " rw=" + rw + " endereco=" + endereco);
 
         if (rw == 1) {
-            // leitura ...
+            return new SysCallRequest(pcb, SysCallRequest.Type.READ, endereco, 0);
         } else if (rw == 2) {
-            System.out.println("OUT:   " + hw.mem.pos[endereco].p);
+            return new SysCallRequest(pcb, SysCallRequest.Type.WRITE, endereco, 0);
         } else {
-            System.out.println("  PARAMETRO INVALIDO");
+            return new SysCallRequest(pcb, SysCallRequest.Type.INVALID, endereco, 0);
         }
     }
 }
-

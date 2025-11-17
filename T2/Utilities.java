@@ -37,14 +37,6 @@ public class Utilities {
     }
 
     public void loadAndExec(Word[] p) {
-        loadProgram(p);
-        System.out.println("---------------------------------- programa carregado na memoria");
-        dump(0, p.length);
-        hw.cpu.setContext(0);
-        System.out.println("---------------------------------- inicia execucao ");
-        hw.cpu.run();
-        System.out.println("---------------------------------- memoria após execucao ");
-        dump(0, p.length);
+        throw new UnsupportedOperationException("Execução direta não suportada no modo concorrente.");
     }
 }
-
